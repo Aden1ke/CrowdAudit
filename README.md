@@ -1,60 +1,68 @@
 # CrowdAudit
 
-**An AI-powered prediction market irrationality detector**  
-ZerveHack 2026 | Deadline: April 29 @ 7:00PM GMT+1
+CrowdAudit detects when public narrative on a topic has drifted away from verified, ground-truth data — and measures how far that drift has gone.
 
----
-
-## What It Is
-
-Prediction markets like Polymarket and Kalshi are often cited as the most accurate forecasters in the world — people bet real money on real outcomes, so the incentive to be right is strong. But there's a hidden flaw: when social media hype spikes around an event, crowds pile in not because the data supports it, but because the noise is deafening.
-
-CrowdAudit detects that drift in real time. It watches three layers of data simultaneously — market odds, search volume, and economic indicators — and surfaces a **Sanity Score (0–100)** for any live market:
-
-- **100** — fully rational, market reflects economic reality
-- **0** — pure hype, the crowd is flying blind
+The internet produces enormous amounts of attention around any given topic. Wikipedia pages get edited rapidly. Reddit threads explode. News headlines multiply. Sometimes this activity reflects genuine new information. Often it reflects hype, fear, or misinformation outpacing what the evidence actually shows. CrowdAudit quantifies that gap in real time.
 
 ---
 
 ## How It Works
 
-Three data sources feed into a single scoring pipeline:
+Three data layers are pulled simultaneously for any tracked topic:
 
-**Market consensus (Polymarket / Kalshi)** — real-money prediction market odds, updated every few seconds. This is what the crowd currently believes, with skin in the game.
+**Crowd narrative** — Wikipedia edit velocity on the topic's page. When a topic's Wikipedia article is being edited rapidly, the public narrative around it is actively being contested or rewritten. This is a real-time signal of how much the collective story is shifting.
 
-**Public hype (Google Trends / Reddit)** — search volume and social media activity around an event topic. High volume often precedes irrational market moves; the crowd follows noise.
+**Social hype** — combined Reddit post volume and news headline frequency, normalised to a 0–100 index. This captures the emotional intensity and reach of public attention around a topic, independent of whether that attention is grounded in new information.
 
-**Ground reality (FRED — Federal Reserve Economic Data)** — unemployment, CPI, fed funds rate, GDP. Slow-moving but honest. When market odds diverge from what this data implies, that's where the signal lives.
+**Ground reality** — official data from authoritative sources, selected by topic domain:
 
-The insight is in the **space between** these three sources. One dataset alone tells you nothing. The gap between all three tells you everything.
+- Economics: FRED (Federal Reserve) — unemployment, inflation, GDP
+- Health: WHO and CDC — case rates, mortality, vaccine coverage
+- Climate: NOAA and NASA — temperature anomalies, sea level, CO2
+- Politics: official polling aggregates, electoral commission data
+
+These three layers update at very different speeds — Wikipedia edits happen in minutes, social data updates daily, official indicators update weekly or monthly. The ingestion pipeline resamples all three to a common 1-hour window using forward-fill, so the scoring engine is always comparing the same slice of time across all sources.
 
 ---
 
-## The Sanity Score Formula
+## The Sanity Score
+
+Every tracked topic receives a **Sanity Score from 0 to 100**:
+
+- **100** — narrative is fully grounded; public attention tracks what official data says
+- **0** — narrative is completely detached; the story being told has no grounding in verified information
+
+The score is computed from three signals:
+
+**S1 — Narrative Velocity (weight 0.25)**  
+How fast is the Wikipedia edit rate shifting relative to its historical baseline? Rapid shifts signal that the narrative is being actively rewritten, often ahead of any verified development. Weight is lowest because fast edits can also reflect legitimate knowledge-building.
+
+**S2 — Hype Spike (weight 0.40)**  
+How far above normal is the current social volume? Measured as a z-score against a 7-day rolling baseline. This carries the highest weight because historical benchmarks consistently show that abnormal social attention is the primary driver of narrative distortion — it precedes Wikipedia overcorrection by 24 to 48 hours.
+
+**S3 — Reality Divergence (weight 0.35)**  
+How large is the gap between narrative intensity and what official data implies? A topic where Wikipedia activity is surging but official indicators show nothing unusual scores high on this signal. This carries the second-highest weight because the gap between attention and evidence is the core of what CrowdAudit is measuring.
 
 ```
 IrrationalityIndex = (0.25 × S1) + (0.40 × S2) + (0.35 × S3)
 SanityScore = round((1 − IrrationalityIndex) × 100)
 ```
 
-**S1 — Odds Velocity (weight 0.25)**  
-How fast are market odds moving relative to their historical volatility? A market moving 3× its normal daily range scores S1 = 1.0. Velocity is a lagging confirmation — fast movement can indicate real news, so it carries the lowest weight.
+| Score  | Label        |
+| ------ | ------------ |
+| 90–100 | Grounded     |
+| 70–89  | Mostly sound |
+| 50–69  | Drifting     |
+| 30–49  | Distorted    |
+| 0–29   | Detached     |
 
-**S2 — Hype Spike (weight 0.40)**  
-How far above baseline is the current search volume? Computed as a z-score against a 7-day rolling average. A 3-sigma spike scores S2 = 1.0. This gets the highest weight because historical benchmarks show Trends spikes are the primary driver of irrational markets — they precede price peaks by 24–48 hours.
+---
 
-**S3 — Economic Divergence (weight 0.35)**  
-How far is the market's implied probability from what FRED economic data would predict? A 35 percentage-point gap between market odds and FRED-implied probability scores S3 = 1.0. This gets the second-highest weight because fundamental data is the ground truth — when markets drift from it without a corresponding FRED move, that's the clearest irrationality signal.
+## Adversarial Check
 
-**Score interpretation:**
+Every score above 50 irrationality passes through an adversarial counter-narrative check before being finalised. The system asks: _"What if the public is right and the official data is lagging?"_
 
-| Range  | Label                 |
-| ------ | --------------------- |
-| 90–100 | Highly rational       |
-| 70–89  | Mostly rational       |
-| 50–69  | Warning zone          |
-| 30–49  | Irrational            |
-| 0–29   | Detached from reality |
+This matters because official statistics have publication delays — a real health crisis may not appear in monthly case rate data for weeks, while Reddit and Wikipedia respond immediately. When a plausible counter-narrative exists, the result is flagged `low_confidence: true` and the specific counter-narrative is included in the API response so users can evaluate it themselves.
 
 ---
 
@@ -84,145 +92,50 @@ crowdaudit/
 
 ---
 
-## Module Reference
-
-### `ingestion/temporal_align.py`
-
-The data collision engine. Polymarket updates every few seconds, Google Trends updates daily, and FRED updates monthly. This module resamples all three down to a common 1-hour window so the scoring engine is always comparing the same slice of time across all sources.
-
-The core technique is **forward-fill with staleness tracking**: when a daily or monthly source hasn't updated yet, the last known value carries forward — but a staleness counter tracks how old it is. Rows that exceed staleness limits are flagged with `any_source_stale = True` and skipped by the scoring engine.
-
-Key functions:
-
-`align_all_sources(polymarket_df, trends_df, fred_df, market_id, lookback_hours=168)` — master join. Takes raw DataFrames from each source and returns a single wide DataFrame, one row per hour, aligned on a UTC DatetimeIndex.
-
-`compute_historical_volatility(aligned_df, window_hours=72)` — adds `odds_volatility_baseline`, the rolling standard deviation of implied probability over the past 72 hours. Must be called before scoring; the S1 signal depends on it.
-
-**Aligned DataFrame columns:**
-
-| Column                        | Type         | Description                                 |
-| ----------------------------- | ------------ | ------------------------------------------- |
-| `timestamp`                   | datetime UTC | Hour window start                           |
-| `market_id`                   | str          | Market identifier                           |
-| `implied_prob`                | float        | Closing probability for the hour            |
-| `polymarket_high` / `_low`    | float        | Price range within the hour                 |
-| `search_volume`               | float        | Google Trends index (0–100), forward-filled |
-| `google_trends_staleness_hrs` | int          | Hours since last real Trends update         |
-| `indicator_value`             | float        | FRED value, forward-filled                  |
-| `fred_staleness_hrs`          | int          | Hours since last real FRED update           |
-| `any_source_stale`            | bool         | True if any source is too stale to trust    |
-| `odds_volatility_baseline`    | float        | 72-hour rolling std of implied_prob         |
-
----
-
-### `scoring/sanity_score.py`
-
-The core of the project. Implements the three signal functions, the weighted composite, an explainability layer that produces a plain-English reason string, and an adversarial counter-narrative check.
-
-**Signal functions:**
-
-`compute_S1_odds_velocity(df, window_hours=24)` — returns a float 0–1. Computes `mean(|hourly_prob_change|) / historical_std / 3.0`, capped at 1.0.
-
-`compute_S2_hype_spike(df, window_hours=48, baseline_window=168)` — returns `(float, list[str])`. Z-scores recent search volume against a 7-day baseline, normalised to 0–1. Also returns `top_keywords` (wire to Reddit API for production; placeholder in current version).
-
-`compute_S3_econ_divergence(df, fred_series_type)` — returns `(float, float)`. Maps the FRED indicator value to an implied probability using calibrated heuristics, then measures the gap against market odds. Returns both the S3 score and the `fred_implied_prob` for the API response. Supported series types: `"unemployment"`, `"cpi"`.
-
-`adversarial_counter_check(S1, S2, S3, implied_prob, fred_implied_prob)` — runs after scoring. If any signal is below the ambiguity threshold (default 0.20), the check asks: "what if the crowd is right?" It flags plausible counter-narratives — hidden variables not captured by FRED or Trends, cases where the FRED series may be the wrong proxy — and marks the result `low_confidence = True`.
-
-`compute_sanity_score(aligned_df, market_id, fred_series_type)` — master function that chains everything and returns a `SanityScoreResult` dataclass. Call `.to_json()` to get the API-ready JSON string.
-
-Tunable constants at the top of the file: `WEIGHTS` (must sum to 1.0) and `ADVERSARIAL_AMBIGUITY_THRESHOLD` (default 0.20).
-
----
-
-### `api/endpoint.py`
-
-A FastAPI server exposing the Sanity Score over HTTP. Three endpoints:
-
-```
-GET /health
-GET /v1/sanity-score/{market_id}
-GET /v1/markets/ranked?limit=20&min_irrationality=0.0
-```
-
-`/v1/markets/ranked` returns all tracked markets sorted by irrationality descending — the primary feed for the dashboard's ranked list. The `min_irrationality` filter lets the UI show only markets above a chosen threshold.
-
-**Full response schema per market:**
-
-| Field                 | Type       | Description                                          |
-| --------------------- | ---------- | ---------------------------------------------------- |
-| `market_id`           | str        | Unique identifier                                    |
-| `market_title`        | str        | Human-readable market question                       |
-| `sanity_score`        | int 0–100  | The headline number                                  |
-| `irrationality_index` | float 0–1  | Raw composite before inversion                       |
-| `signal_breakdown`    | object     | S1, S2, S3 values and their weights                  |
-| `divergence_vector`   | float      | market_implied_prob minus fred_implied_prob (signed) |
-| `top_hype_keywords`   | string[]   | Terms driving the search volume spike                |
-| `reason`              | str        | Plain-English explanation of the score               |
-| `low_confidence`      | bool       | True if adversarial check raised a counter-narrative |
-| `adversarial_notes`   | string[]   | The specific counter-narratives flagged              |
-| `fred_implied_prob`   | float      | Probability the economic data predicts               |
-| `market_implied_prob` | float      | Current crowd odds                                   |
-| `computed_at`         | ISO string | UTC timestamp of computation                         |
-
-Three mock markets are pre-loaded so the dashboard can be built against real API shapes immediately: `FED_RATE_CUT_JUL26` (score 31), `US_RECESSION_2026` (score 74), `BTC_100K_DEC26` (score 18).
-
----
-
-### `zerve_prompts/zerve_prompts.py`
-
-All the Zerve agent prompts in one place. The master exploration question asks the agent to find events where market odds shifted significantly but the underlying FRED indicators stayed flat. Specialised deep-dive prompts cover the Hype Lag Effect (does a Trends spike reliably predict a 48-hour price overcorrection?) and the Sure Thing Trap (are markets with 85%+ odds statistically overpriced when fundamentals don't support the certainty?).
-
-`build_adversarial_prompt(market_id, score, S1, S2, S3)` generates a market-specific devil's advocate prompt — "assume the crowd is correct, what are we missing?" — used to stress-test any market that scores below 40.
-
-Also contains `FAILED_PATH_LOG_TEMPLATE` for documenting agent sessions that went off-track and how they were corrected, and `API_DOCUMENTATION_FOR_ROLE_B`, a complete API reference formatted to share with the frontend developer.
-
----
-
-### `benchmarks/gold_events.json`
-
-Five historical prediction market failures used to validate that the formula weights produce the right answer on known cases before being trusted on live markets.
-
-| ID   | Event                                         | Expected score range                         |
-| ---- | --------------------------------------------- | -------------------------------------------- |
-| B001 | 2022 'transitory inflation' markets           | 20–30                                        |
-| B002 | 2020 V-shaped recovery markets                | 15–25                                        |
-| B003 | 2022 UK recession markets (post-Truss budget) | 45–55 (borderline — should not over-trigger) |
-| B004 | 2021 Bitcoin $100K markets                    | 15–25                                        |
-| B005 | 2023 US debt ceiling default markets          | 55–65 with `low_confidence = True`           |
-
-Calibration target: after running against real historical data for each benchmark, aim for Pearson r > 0.75 between `irrationality_index` and actual market error at expiry. If r < 0.75, adjust `WEIGHTS` in `sanity_score.py` and re-run.
-
----
-
 ## Setup
 
 ```bash
 # Install dependencies
 pip install pandas numpy fastapi uvicorn httpx pytrends requests python-dotenv
 
-# Create a .env file in the project root
-echo "FRED_API_KEY=your_key_here" > .env
-echo "KALSHI_API_KEY=your_key_here" >> .env
+# Copy the environment template and fill in your keys
+cp .env.example .env
 
-# Quick smoke tests
+# Run quick self-tests
 python ingestion/temporal_align.py
 PYTHONPATH=. python scoring/sanity_score.py
 
 # Start the API server
 PYTHONPATH=. uvicorn api.endpoint:app --reload --port 8000
-# API docs available at http://localhost:8000/docs
 ```
 
-See `TESTING.md` for the full test suite with expected outputs for every module.
+API documentation is available at `http://localhost:8000/docs` once the server is running.
 
 ---
 
-## API Keys
+## API
 
-| Source        | How to get it                                     | Cost                                 |
-| ------------- | ------------------------------------------------- | ------------------------------------ |
-| FRED          | https://fred.stlouisfed.org/docs/api/api_key.html | Free, instant                        |
-| Kalshi        | https://trading.kalshi.com → Dashboard → API      | Free account                         |
-| Polymarket    | https://docs.polymarket.com                       | No key needed for public market data |
-| Google Trends | No key needed — uses the `pytrends` library       | Free                                 |
+```
+GET /health
+GET /v1/sanity-score/{topic_id}
+GET /v1/topics/ranked?limit=20&min_irrationality=0.0&data_domain=health
+```
+
+The `/v1/topics/ranked` endpoint returns all tracked topics sorted by irrationality descending. The `data_domain` filter accepts `economic`, `health`, `political`, or `climate`.
+
+Each response includes the full signal breakdown (S1/S2/S3), the top keywords driving the hype spike, a plain-English reason string, the adversarial notes if `low_confidence` is true, and the raw narrative intensity vs. data-implied score for the dashboard to display as a before/after comparison.
+
+---
+
+## Data Sources
+
+| Source                   | Domain     | Cadence          | How to get access                           |
+| ------------------------ | ---------- | ---------------- | ------------------------------------------- |
+| Wikipedia API            | All topics | Real-time        | No key needed — public REST API             |
+| Google Trends (pytrends) | All topics | Daily            | No key needed                               |
+| Reddit API               | All topics | Daily            | Free account at reddit.com/prefs/apps       |
+| NewsAPI                  | All topics | Daily            | Free tier at newsapi.org                    |
+| FRED                     | Economic   | Monthly / weekly | Free key at fred.stlouisfed.org             |
+| WHO GHO API              | Health     | Weekly           | No key needed — public REST API             |
+| NOAA Climate API         | Climate    | Monthly          | Free key at www.ncdc.noaa.gov/cdo-web/token |
+| Electoral data           | Political  | As released      | Varies by country                           |

@@ -1,0 +1,96 @@
+{
+    "_description": "Gold Standard Benchmarks — 5 historical cases where public narrative demonstrably diverged from verified data. Used to calibrate and validate the Sanity Score formula weights.",
+
+    "benchmarks": [
+        {
+            "id": "B001",
+            "topic": "Ivermectin as COVID-19 treatment (2021)",
+            "topic_id": "IVERMECTIN_COVID_NARRATIVE",
+            "data_domain": "health",
+            "description": "In mid-2021, social media drove massive public belief that ivermectin was an effective COVID-19 treatment. Wikipedia edits on the topic surged, Reddit posts proliferated, and searches exploded — while WHO and FDA guidance remained consistently negative pending proper trial data.",
+            "peak_narrative_intensity": 0.91,
+            "data_implied_score_at_peak": 0.08,
+            "divergence_at_peak": 0.83,
+            "social_volume_zscore": 3.7,
+            "official_source": "WHO and FDA advisories",
+            "what_the_data_said": "No randomised controlled trial had demonstrated efficacy. WHO explicitly advised against use outside clinical trials.",
+            "what_happened": "Multiple large randomised trials (TOGETHER, ACTIV-6) subsequently confirmed ivermectin had no meaningful effect on COVID outcomes. Narrative eventually corrected but after widespread adoption in several countries.",
+            "calibration_note": "Strongest benchmark for S2 (hype spike) and S3 (reality divergence). Expected score: 10–22. Validates S2 weight of 0.40 as the dominant signal.",
+            "expected_score_range": [10, 22]
+        },
+        {
+            "id": "B002",
+            "topic": "5G towers causing COVID-19 (2020)",
+            "topic_id": "5G_COVID_NARRATIVE",
+            "data_domain": "health",
+            "description": "A conspiracy theory linking 5G mobile towers to COVID-19 spread rapidly across social platforms in early 2020. Wikipedia edits on both the 5G and COVID pages spiked dramatically. No scientific basis existed and public health agencies produced no data supporting the claim.",
+            "peak_narrative_intensity": 0.96,
+            "data_implied_score_at_peak": 0.02,
+            "divergence_at_peak": 0.94,
+            "social_volume_zscore": 4.1,
+            "official_source": "WHO, ICNIRP, UK OFCOM",
+            "what_the_data_said": "No plausible biological mechanism. COVID-19 spread in countries with no 5G deployment. All major health and communications regulators issued explicit refutations.",
+            "what_happened": "Theory persisted in fringe communities. Led to physical attacks on cell towers in the UK and elsewhere. A clear case of narrative completely detached from reality.",
+            "calibration_note": "Maximum distortion benchmark — should score near 0. All three signals should be at maximum. Use to validate the upper bound of the formula.",
+            "expected_score_range": [0, 10]
+        },
+        {
+            "id": "B003",
+            "topic": "Inflation as purely corporate greedflation (2022)",
+            "topic_id": "GREEDFLATION_NARRATIVE",
+            "data_domain": "economic",
+            "description": "In 2022, the 'greedflation' narrative — that inflation was caused primarily by corporate profit-taking rather than supply shocks and monetary policy — became dominant on social media and in some political discourse. FRED data showed CPI driven by energy, food, and shelter costs across all sectors.",
+            "peak_narrative_intensity": 0.61,
+            "data_implied_score_at_peak": 0.48,
+            "divergence_at_peak": 0.13,
+            "social_volume_zscore": 1.8,
+            "official_source": "FRED CPI component breakdowns, BLS Producer Price Index",
+            "what_the_data_said": "Inflation was broad-based across all sectors and highly correlated with energy and supply chain disruptions. Corporate margins did rise in some sectors but were not the primary driver of aggregate CPI.",
+            "what_happened": "Partial narrative — some greedflation did occur in specific industries but was not the dominant cause. This is a BORDERLINE case where the narrative was partially supported by data.",
+            "calibration_note": "Borderline case — the formula should NOT over-trigger here. Expected score: 55–70 (drifting but not strongly distorted). Use to validate that moderate divergence doesn't produce extreme scores.",
+            "expected_score_range": [55, 70]
+        },
+        {
+            "id": "B004",
+            "topic": "Climate change causing specific extreme weather events (2023)",
+            "topic_id": "CLIMATE_ATTRIBUTION_NARRATIVE",
+            "data_domain": "climate",
+            "description": "Following several major weather events in 2023, social media and news narratives strongly attributed individual storms and heatwaves directly to climate change as a singular cause. While climate change does increase frequency and intensity of extreme weather, direct single-event attribution is scientifically more nuanced than the narrative suggested.",
+            "peak_narrative_intensity": 0.78,
+            "data_implied_score_at_peak": 0.52,
+            "divergence_at_peak": 0.26,
+            "social_volume_zscore": 2.4,
+            "official_source": "NOAA, World Weather Attribution project",
+            "what_the_data_said": "Climate change made specific events more likely or more intense, but single-event attribution requires probabilistic framing. IPCC data confirmed long-term trends but does not support deterministic individual-event claims.",
+            "what_happened": "Scientific community pushed back on overly simplified attribution language. IPCC and World Weather Attribution issued guidance on probabilistic framing. A case where the direction of the narrative was correct but the certainty was overstated.",
+            "calibration_note": "Moderate distortion case. The narrative was directionally right but overstated certainty. Expected score: 40–58. Also a good test of the low_confidence flag — the adversarial check should note that official science does support the general direction.",
+            "expected_score_range": [40, 58]
+        },
+        {
+            "id": "B005",
+            "topic": "Crime rates surging to historic highs (2022)",
+            "topic_id": "CRIME_SURGE_NARRATIVE",
+            "data_domain": "political",
+            "description": "Throughout 2021–2022, a persistent social media and political narrative claimed crime was at historic highs in major US cities. FBI and BJS crime data told a more nuanced story — homicides did rise in 2020–2021 but were still below 1990s peaks, and most other crime categories were declining or flat.",
+            "peak_narrative_intensity": 0.72,
+            "data_implied_score_at_peak": 0.31,
+            "divergence_at_peak": 0.41,
+            "social_volume_zscore": 2.9,
+            "official_source": "FBI Uniform Crime Reports, Bureau of Justice Statistics",
+            "what_the_data_said": "Homicides did rise ~30% in 2020 but remained below 1990s levels. Violent crime overall was at multi-decade lows. Property crime had declined consistently for 30 years.",
+            "what_happened": "The narrative persisted and became a major political talking point despite not matching the aggregate data. A clear case of social and political attention amplifying a real but overstated trend.",
+            "calibration_note": "Strong distortion case — narrative is in the right direction (homicides did rise) but dramatically overstates magnitude. Expected score: 28–42. Tests whether the formula handles directional accuracy with magnitude distortion correctly.",
+            "expected_score_range": [28, 42]
+        }
+    ],
+
+    "calibration_instructions": [
+        "1. Run compute_sanity_score() against real historical data for each benchmark topic",
+        "2. Verify the resulting sanity_score falls within expected_score_range",
+        "3. If a score is outside range, adjust WEIGHTS in scoring/sanity_score.py",
+        "4. Priority order: B001 and B002 are the clearest extremes — calibrate to those first",
+        "5. B003 is the critical borderline case — ensure the score does not over-trigger there",
+        "6. Target: Pearson r > 0.75 between irrationality_index and actual assessed narrative error",
+        "7. B004 and B005 should produce low_confidence=True — verify the adversarial check fires"
+    ]
+}
