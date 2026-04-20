@@ -30,8 +30,11 @@ import pandas as pd
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 import json
+import sys
+import os
 
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 #  Weights (tunable — calibrate against gold benchmarks)
 
 WEIGHTS = {
@@ -129,7 +132,7 @@ def compute_S3_econ_divergence(
     This requires a calibrated mapping from economic indicator → expected probability.
     The mapping is trained on gold standard benchmarks (see benchmarks/gold_events.json).
 
-    For the hackathon, we use a simple heuristic rule set per series type.
+    we use a simple heuristic rule set per series type.
     Replace with a regression model once gold benchmarks are validated.
 
     Returns (S3, fred_implied_prob).
@@ -321,7 +324,7 @@ def compute_sanity_score(
 if __name__ == "__main__":
     from ingestion.temporal_align import (
         align_all_sources,
-        compute_historical_volatility,
+        compute_narrative_volatility,
     )
 
     # Synthetic: market at 85% but FRED implies only 52% → strong divergence

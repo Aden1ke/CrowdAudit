@@ -68,9 +68,7 @@ For each identified topic:
        IrrScore = (wiki_velocity_ratio/3 × 0.25) + (social_zscore/3 × 0.40) + (data_gap × 0.35)
 
 Format as a structured table, then write a 3-sentence summary of the most striking case.
-""".format(
-    data_context=DATA_CONTEXT
-)
+""".format(data_context=DATA_CONTEXT)
 
 
 #  Hype lag deep dive
@@ -102,9 +100,7 @@ TASK:
 
 4. Conclude: is attention-driven narrative distortion a measurable phenomenon in this
    dataset, and which domain shows the strongest distortion pattern?
-""".format(
-    data_context=DATA_CONTEXT
-)
+""".format(data_context=DATA_CONTEXT)
 
 
 #  Certainty trap analysis
@@ -133,9 +129,7 @@ TASK:
 
 4. Report: the "Certainty Gap" — average proportion of high-intensity narrative
    periods that are not supported by official data, across all domains.
-""".format(
-    data_context=DATA_CONTEXT
-)
+""".format(data_context=DATA_CONTEXT)
 
 
 #  Adversarial counter-narrative prompt
