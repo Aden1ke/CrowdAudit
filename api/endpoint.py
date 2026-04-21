@@ -8,15 +8,41 @@ Exposes the Sanity Score over HTTP. Three endpoints:
   GET /v1/topics/ranked
 
 Run locally:
-  pip install fastapi uvicorn
   PYTHONPATH=. uvicorn api.endpoint:app --reload --port 8000
+  Interactive docs: http://localhost:8000/docs
 
-Interactive docs: http://localhost:8000/docs
+Data source behaviour:
+  Development (ZERVE_ENDPOINT_URL not set in .env):
+    Returns mock data so Role B can build the frontend immediately.
+    No Zerve account needed during this phase.
+
+  Production (ZERVE_ENDPOINT_URL set in .env after Day 7-9):
+    Calls zerve_client.get_live_score() which forwards the request to
+    your deployed Zerve scoring workflow and returns live scores.
+    No code changes needed — flipping the env var is the only step.
 """
 
+import os
+import logging
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+ZERVE_ENDPOINT_URL = os.getenv("ZERVE_ENDPOINT_URL", "")
+USE_LIVE_ZERVE = bool(ZERVE_ENDPOINT_URL)
+
+if USE_LIVE_ZERVE:
+    from zerve_client import get_live_score
+
+    logger.info(f"Zerve live scoring active — endpoint: {ZERVE_ENDPOINT_URL}")
+else:
+    logger.info("ZERVE_ENDPOINT_URL not set — serving mock data (development mode)")
 
 
 app = FastAPI(
@@ -25,64 +51,39 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
 
 #  Response schema
 
 
 class SignalBreakdown(BaseModel):
-    S1_narrative_velocity: float = Field(
-        ...,
-        ge=0,
-        le=1,
-        description="Speed of Wikipedia narrative shift vs historical baseline",
-    )
-    S2_hype_spike: float = Field(
-        ..., ge=0, le=1, description="Social/search volume z-score, normalised 0–1"
-    )
-    S3_reality_divergence: float = Field(
-        ..., ge=0, le=1, description="Gap between narrative intensity and official data"
-    )
-    weights: dict = Field(
-        ..., description="Weight applied to each signal in the composite score"
-    )
+    S1_narrative_velocity: float = Field(..., ge=0, le=1)
+    S2_hype_spike: float = Field(..., ge=0, le=1)
+    S3_reality_divergence: float = Field(..., ge=0, le=1)
+    weights: dict
 
 
 class SanityScoreResponse(BaseModel):
-    topic_id: str = Field(..., description="Unique topic identifier")
-    topic_title: str = Field(..., description="Human-readable topic description")
-    sanity_score: int = Field(
-        ...,
-        ge=0,
-        le=100,
-        description="0=narrative detached from reality, 100=fully grounded",
-    )
-    irrationality_index: float = Field(
-        ..., ge=0, le=1, description="Raw distortion composite before inversion"
-    )
+    topic_id: str
+    topic_title: str
+    sanity_score: int = Field(..., ge=0, le=100)
+    irrationality_index: float = Field(..., ge=0, le=1)
     signal_breakdown: SignalBreakdown
-    divergence_vector: float = Field(
-        ..., description="narrative_intensity minus data_implied_score (signed)"
-    )
-    top_hype_keywords: list[str] = Field(
-        default=[], description="Terms driving the social volume spike"
-    )
-    reason: str = Field(..., description="Plain-English explanation of the score")
-    low_confidence: bool = Field(
-        ..., description="True if a plausible counter-narrative was identified"
-    )
-    adversarial_notes: list[str] = Field(
-        default=[], description="Counter-narratives the adversarial check raised"
-    )
-    data_implied_score: float = Field(
-        ..., description="Normalised score from official ground-truth data (0–1)"
-    )
-    narrative_intensity: float = Field(
-        ..., description="Normalised public narrative intensity (0–1)"
-    )
-    data_domain: str = Field(
-        ..., description="Domain of official data: economic, health, political, climate"
-    )
-    computed_at: str = Field(..., description="UTC ISO timestamp of this computation")
+    divergence_vector: float
+    top_hype_keywords: list[str] = []
+    reason: str
+    low_confidence: bool
+    adversarial_notes: list[str] = []
+    data_implied_score: float
+    narrative_intensity: float
+    data_domain: str
+    computed_at: str
 
 
 class RankedTopicsResponse(BaseModel):
@@ -91,7 +92,7 @@ class RankedTopicsResponse(BaseModel):
     total_topics: int
 
 
-#  Mock data
+#  Mock data (used when ZERVE_ENDPOINT_URL is not set)
 
 MOCK_TOPICS = [
     {
@@ -168,7 +169,7 @@ MOCK_TOPICS = [
             "point of no return",
             "climate emergency",
         ],
-        "reason": "High social volume spike (S2=0.93) — activity is 2.8σ above baseline | Fast narrative shift (S1=0.74) — Wikipedia edit rate is 3× its historical baseline | Reality divergence (S3=0.69)",
+        "reason": "High social volume spike (S2=0.93) — activity is 2.8σ above baseline | Fast narrative shift (S1=0.74) | Reality divergence (S3=0.69)",
         "low_confidence": False,
         "adversarial_notes": [],
         "data_implied_score": 0.29,
@@ -184,15 +185,40 @@ MOCK_TOPICS = [
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "data_source": "zerve_live" if USE_LIVE_ZERVE else "mock",
+        "zerve_url": ZERVE_ENDPOINT_URL or "not configured",
+    }
 
 
 @app.get("/v1/sanity-score/{topic_id}", response_model=SanityScoreResponse)
 async def get_sanity_score(topic_id: str):
     """
     Get the Sanity Score for a specific topic.
-    Returns 404 if the topic is not currently tracked.
+
+    When ZERVE_ENDPOINT_URL is set: forwards request to the live Zerve
+    scoring workflow and returns the result.
+
+    When ZERVE_ENDPOINT_URL is not set: returns mock data for development.
     """
+    if USE_LIVE_ZERVE:
+        try:
+            # Resolve topic metadata from mock list (or your own topic registry)
+            meta = next((t for t in MOCK_TOPICS if t["topic_id"] == topic_id), None)
+            title = meta["topic_title"] if meta else topic_id
+            domain = meta["data_domain"] if meta else "economic"
+
+            result = get_live_score(topic_id, title, domain)
+            return SanityScoreResponse(**result)
+        except Exception as e:
+            logger.error(f"Zerve scoring failed for {topic_id}: {e}")
+            raise HTTPException(
+                status_code=502, detail=f"Zerve endpoint error: {str(e)}"
+            )
+
+    # Development: serve from mock data
     for topic in MOCK_TOPICS:
         if topic["topic_id"] == topic_id:
             return SanityScoreResponse(**topic)
@@ -208,22 +234,18 @@ async def get_ranked_topics(
 ):
     """
     Returns tracked topics sorted by irrationality_index descending.
-
-    Query params:
-      limit              — max topics to return (default 20)
-      min_irrationality  — only return topics above this threshold (0.0–1.0)
-      data_domain        — filter by domain: economic, health, political, climate
+    Filters: limit, min_irrationality (0.0–1.0), data_domain.
     """
+    source = MOCK_TOPICS  # in production, replace with a live topic registry
+
     filtered = [
         t
-        for t in MOCK_TOPICS
+        for t in source
         if t["irrationality_index"] >= min_irrationality
         and (not data_domain or t["data_domain"] == data_domain)
     ]
-    sorted_topics = sorted(
-        filtered, key=lambda t: t["irrationality_index"], reverse=True
-    )
-    limited = sorted_topics[:limit]
+    ranked = sorted(filtered, key=lambda t: t["irrationality_index"], reverse=True)
+    limited = ranked[:limit]
 
     return RankedTopicsResponse(
         topics=[SanityScoreResponse(**t) for t in limited],
