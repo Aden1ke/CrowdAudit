@@ -12,17 +12,14 @@ Run locally:
   Interactive docs: http://localhost:8000/docs
 
 Data source behaviour:
-  Development (USE_REAL_DATA=false in .env):
-    Returns mock data. No API calls made. Fast.
+  Development (ZERVE_ENDPOINT_URL not set in .env):
+    Returns mock data so Role B can build the frontend immediately.
+    No Zerve account needed during this phase.
 
-  Real data (USE_REAL_DATA=true in .env):
-    Calls pipeline.py which fetches from Wikipedia, HackerNews,
-    Bluesky, Arctic Shift, FRED, NOAA, and NewsAPI.
-    No Zerve endpoint URL needed.
-
-  Zerve live (ZERVE_ENDPOINT_URL set in .env):
-    Forwards scoring to deployed Zerve workflow.
-    Overrides real data mode when set.
+  Production (ZERVE_ENDPOINT_URL set in .env after Day 7-9):
+    Calls zerve_client.get_live_score() which forwards the request to
+    your deployed Zerve scoring workflow and returns live scores.
+    No code changes needed — flipping the env var is the only step.
 """
 
 import os
@@ -34,22 +31,18 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+
 logger = logging.getLogger(__name__)
 
 ZERVE_ENDPOINT_URL = os.getenv("ZERVE_ENDPOINT_URL", "")
-USE_REAL_DATA = os.getenv("USE_REAL_DATA", "false").lower() == "true"
 USE_LIVE_ZERVE = bool(ZERVE_ENDPOINT_URL)
 
 if USE_LIVE_ZERVE:
     from zerve_client import get_live_score
 
-    logger.info(f"Mode: Zerve live — {ZERVE_ENDPOINT_URL}")
-elif USE_REAL_DATA:
-    from pipeline import run_pipeline, run_all_topics, TOPIC_REGISTRY
-
-    logger.info("Mode: Real data pipeline (Wikipedia + Social + FRED/NOAA)")
+    logger.info(f"Zerve live scoring active — endpoint: {ZERVE_ENDPOINT_URL}")
 else:
-    logger.info("Mode: Mock data (set USE_REAL_DATA=true in .env for real data)")
+    logger.info("ZERVE_ENDPOINT_URL not set — serving mock data (development mode)")
 
 
 app = FastAPI(
@@ -66,7 +59,7 @@ app.add_middleware(
 )
 
 
-# ─── Response schema ──────────────────────────────────────────────────────────────
+#  Response schema
 
 
 class SignalBreakdown(BaseModel):
@@ -99,7 +92,7 @@ class RankedTopicsResponse(BaseModel):
     total_topics: int
 
 
-# ─── Mock data (used when USE_REAL_DATA=false) ────────────────────────────────────
+#  Mock data (used when ZERVE_ENDPOINT_URL is not set)
 
 MOCK_TOPICS = [
     {
@@ -119,7 +112,7 @@ MOCK_TOPICS = [
         },
         "divergence_vector": 0.44,
         "top_hype_keywords": ["lab leak", "natural origin", "wuhan", "fauci emails"],
-        "reason": "High social volume spike (S2=0.91) — activity is 2.7σ above baseline | Reality divergence (S3=0.56)",
+        "reason": "High social volume spike (S2=0.91) — activity is 2.7σ above baseline | Reality divergence (S3=0.56) — narrative intensity at 82% vs data-implied 38%",
         "low_confidence": False,
         "adversarial_notes": [],
         "data_implied_score": 0.38,
@@ -147,7 +140,7 @@ MOCK_TOPICS = [
         "reason": "All signals within normal range — narrative appears grounded in data",
         "low_confidence": True,
         "adversarial_notes": [
-            "S1 (narrative velocity) is low (0.22) — Wikipedia edits are stable."
+            "S1 (narrative velocity) is low (0.22) — Wikipedia edits are stable. Could reflect settled consensus rather than uninformed hype."
         ],
         "data_implied_score": 0.51,
         "narrative_intensity": 0.70,
@@ -170,8 +163,13 @@ MOCK_TOPICS = [
             },
         },
         "divergence_vector": 0.52,
-        "top_hype_keywords": ["climate collapse", "6 degrees", "point of no return"],
-        "reason": "High social volume spike (S2=0.93) | Fast narrative shift (S1=0.74) | Reality divergence (S3=0.69)",
+        "top_hype_keywords": [
+            "climate collapse",
+            "6 degrees",
+            "point of no return",
+            "climate emergency",
+        ],
+        "reason": "High social volume spike (S2=0.93) — activity is 2.8σ above baseline | Fast narrative shift (S1=0.74) | Reality divergence (S3=0.69)",
         "low_confidence": False,
         "adversarial_notes": [],
         "data_implied_score": 0.29,
@@ -182,7 +180,7 @@ MOCK_TOPICS = [
 ]
 
 
-# ─── Endpoints ────────────────────────────────────────────────────────────────────
+#  Endpoints
 
 
 @app.get("/health")
@@ -190,25 +188,28 @@ async def health():
     return {
         "status": "ok",
         "version": "0.1.0",
-        "data_source": (
-            "zerve_live"
-            if USE_LIVE_ZERVE
-            else ("real_pipeline" if USE_REAL_DATA else "mock")
-        ),
+        "data_source": "zerve_live" if USE_LIVE_ZERVE else "mock",
         "zerve_url": ZERVE_ENDPOINT_URL or "not configured",
     }
 
 
 @app.get("/v1/sanity-score/{topic_id}", response_model=SanityScoreResponse)
 async def get_sanity_score(topic_id: str):
-    """Get the Sanity Score for a specific topic."""
+    """
+    Get the Sanity Score for a specific topic.
 
-    # Mode 1: Zerve live endpoint
+    When ZERVE_ENDPOINT_URL is set: forwards request to the live Zerve
+    scoring workflow and returns the result.
+
+    When ZERVE_ENDPOINT_URL is not set: returns mock data for development.
+    """
     if USE_LIVE_ZERVE:
         try:
+            # Resolve topic metadata from mock list (or your own topic registry)
             meta = next((t for t in MOCK_TOPICS if t["topic_id"] == topic_id), None)
             title = meta["topic_title"] if meta else topic_id
             domain = meta["data_domain"] if meta else "economic"
+
             result = get_live_score(topic_id, title, domain)
             return SanityScoreResponse(**result)
         except Exception as e:
@@ -217,31 +218,7 @@ async def get_sanity_score(topic_id: str):
                 status_code=502, detail=f"Zerve endpoint error: {str(e)}"
             )
 
-    # Mode 2: Real data pipeline
-    if USE_REAL_DATA:
-        try:
-            topic_meta = next(
-                (t for t in TOPIC_REGISTRY if t["topic_id"] == topic_id), None
-            )
-            if not topic_meta:
-                raise HTTPException(
-                    status_code=404, detail=f"Topic '{topic_id}' not in registry"
-                )
-            result = run_pipeline(
-                topic_id=topic_meta["topic_id"],
-                topic_title=topic_meta["topic_title"],
-                topic_query=topic_meta["topic_query"],
-                data_domain=topic_meta["data_domain"],
-                wikipedia_page=topic_meta.get("wikipedia_page"),
-            )
-            return SanityScoreResponse(**result)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Pipeline failed for {topic_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
-
-    # Mode 3: Mock data
+    # Development: serve from mock data
     for topic in MOCK_TOPICS:
         if topic["topic_id"] == topic_id:
             return SanityScoreResponse(**topic)
@@ -255,27 +232,19 @@ async def get_ranked_topics(
     min_irrationality: float = 0.0,
     data_domain: str = "",
 ):
-    """Returns tracked topics sorted by irrationality_index descending."""
-
-    if USE_REAL_DATA and not USE_LIVE_ZERVE:
-        try:
-            all_results = run_all_topics()
-            source = all_results
-        except Exception as e:
-            logger.error(f"run_all_topics failed: {e}")
-            source = MOCK_TOPICS
-    else:
-        source = MOCK_TOPICS
+    """
+    Returns tracked topics sorted by irrationality_index descending.
+    Filters: limit, min_irrationality (0.0–1.0), data_domain.
+    """
+    source = MOCK_TOPICS  # in production, replace with a live topic registry
 
     filtered = [
         t
         for t in source
-        if t.get("irrationality_index", 0) >= min_irrationality
-        and (not data_domain or t.get("data_domain") == data_domain)
+        if t["irrationality_index"] >= min_irrationality
+        and (not data_domain or t["data_domain"] == data_domain)
     ]
-    ranked = sorted(
-        filtered, key=lambda t: t.get("irrationality_index", 0), reverse=True
-    )
+    ranked = sorted(filtered, key=lambda t: t["irrationality_index"], reverse=True)
     limited = ranked[:limit]
 
     return RankedTopicsResponse(

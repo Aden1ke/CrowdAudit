@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { api, scoreColour } from "@/lib/api";
-import ScoreGauge from "@/components/ScoreGauge";
-import SignalBars from "@/components/SignalBars";
+import { api, scoreColour } from "../../../lib/api";
+import ScoreGauge from "../../../components/ScoreGauge";
+import SignalBars from "../../../components/SignalBars";
 
 const DOMAIN_LABEL: Record<string, string> = {
     health: "Health",

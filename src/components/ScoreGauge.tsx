@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { scoreColour, scoreLabel } from "@/lib/api";
+import { scoreColour, scoreLabel } from "../lib/api";
 
 interface Props {
     score: number;

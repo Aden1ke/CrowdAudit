@@ -1,4 +1,4 @@
-import { SignalBreakdown } from "@/lib/api";
+import { SignalBreakdown } from "../lib/api";
 
 const SIGNALS = [
     {

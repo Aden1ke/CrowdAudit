@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { Topic, scoreColour } from "@/lib/api";
+import { Topic, scoreColour } from "../lib/api";
 import ScoreGauge from "./ScoreGauge";
 
 const DOMAIN_STYLES: Record<

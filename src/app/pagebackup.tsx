@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import { api } from "../lib/api";
 import TopicCard from "../components/TopicCard";
 import SearchBar from "../components/SearchBar";
-import FindingsPanel from "../components/FindingsPanel";
 
 const DOMAINS = [
     { value: "", label: "All topics" },
@@ -11,20 +10,6 @@ const DOMAINS = [
     { value: "political", label: "Political" },
     { value: "climate", label: "Climate" },
 ];
-
-async function getFindings() {
-    try {
-        const BASE_URL =
-            process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-        const res = await fetch(`${BASE_URL}/v1/findings`, {
-            cache: "no-store",
-        });
-        if (!res.ok) return null;
-        return res.json();
-    } catch {
-        return null;
-    }
-}
 
 export default async function HomePage({
     searchParams,
@@ -37,7 +22,6 @@ export default async function HomePage({
 
     let data;
     let error: string | null = null;
-    const findings = await getFindings();
 
     try {
         data = await api.rankedTopics({
@@ -50,7 +34,7 @@ export default async function HomePage({
             "Cannot reach the CrowdAudit API. Make sure the backend is running on port 8000.";
     }
 
-    // Client-side search filter on server-fetched list
+    // Client-side search filter applied on the server-fetched list
     const topics = data
         ? data.topics.filter(
               (t) =>
@@ -120,7 +104,7 @@ export default async function HomePage({
                         display: "grid",
                         gridTemplateColumns: "repeat(3,1fr)",
                         gap: 10,
-                        marginBottom: 28,
+                        marginBottom: 36,
                     }}
                 >
                     {[
@@ -181,9 +165,6 @@ export default async function HomePage({
                 </div>
             )}
 
-            {/* Analytical findings panel */}
-            {findings && <FindingsPanel findings={findings} />}
-
             {/* Search + filters */}
             <div
                 style={{
@@ -228,28 +209,6 @@ export default async function HomePage({
                         </button>
                     ))}
                 </form>
-
-                <select
-                    name="min"
-                    defaultValue={String(min)}
-                    style={{
-                        fontFamily: "DM Mono,monospace",
-                        fontSize: 10,
-                        background: "#0f0f14",
-                        border: "1px solid rgba(255,255,255,0.07)",
-                        color: "#8888a0",
-                        borderRadius: 20,
-                        padding: "5px 13px",
-                        cursor: "pointer",
-                        outline: "none",
-                        marginLeft: "auto",
-                    }}
-                >
-                    <option value="0">All distortion levels</option>
-                    <option value="0.4">Drifting+ (&gt; 40%)</option>
-                    <option value="0.6">Distorted+ (&gt; 60%)</option>
-                    <option value="0.75">Detached (&gt; 75%)</option>
-                </select>
             </div>
 
             {/* Error */}
@@ -306,7 +265,7 @@ export default async function HomePage({
                 </p>
             )}
 
-            {/* Empty state */}
+            {/* Topic list */}
             {data && topics.length === 0 && (
                 <p
                     style={{
@@ -321,7 +280,6 @@ export default async function HomePage({
                 </p>
             )}
 
-            {/* Topic list */}
             {data && topics.length > 0 && (
                 <div
                     style={{
